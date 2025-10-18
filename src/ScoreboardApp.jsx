@@ -249,8 +249,8 @@ export default function ScoreboardApp() {
             ? newA > newB
               ? "A"
               : newA < newB
-              ? "B"
-              : s.largestLeadTeam
+                ? "B"
+                : s.largestLeadTeam
             : s.largestLeadTeam;
 
         const pp = { ...s.perPeriod };
@@ -408,16 +408,16 @@ export default function ScoreboardApp() {
         t.id !== teamId
           ? t
           : {
-              ...t,
-              players: [
-                {
-                  id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                  name: n,
-                  number: num,
-                },
-                ...(t.players || []),
-              ],
-            }
+            ...t,
+            players: [
+              {
+                id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                name: n,
+                number: num,
+              },
+              ...(t.players || []),
+            ],
+          }
       )
     );
     setPlayerName("");
@@ -467,6 +467,16 @@ export default function ScoreboardApp() {
         <h1 className="m-0 fw-bold text-light display-5" style={{ letterSpacing: ".5px" }}>
           🏀 Tablero LED de Básquet
         </h1>
+        <Button
+          variant="outline-danger"
+          onClick={() => {
+            localStorage.removeItem("token");
+            window.location.href = "/login";
+          }}
+        >
+          Cerrar sesión
+        </Button>
+
         <div className="d-flex gap-2">
           <Button
             variant={showStats ? "secondary" : "outline-secondary"}
