@@ -14,9 +14,10 @@ import {
   Modal,
   ListGroup,
 } from "react-bootstrap";
+import ReportsPanel from "./components/ReportsPanel";
 
 // =============================
-// TABLERO – LED retro + Gestión de Jugadores
+// TABLERO – LED retro + Gestión de Jugadores + REPORTES
 // =============================
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -111,6 +112,7 @@ export default function ScoreboardApp() {
   // UI
   const [showStats, setShowStats] = useState(false);
   const [showConfig, setShowConfig] = useState(true);
+  const [showReports, setShowReports] = useState(false); // 👈 NUEVO
   const [draftMinutes, setDraftMinutes] = useState(
     String(Math.round(settings.periodLengthSec / 60))
   );
@@ -463,11 +465,11 @@ export default function ScoreboardApp() {
   // ===== UI =====
   return (
     <Container className="py-5 sb">
-      <div className="d-flex align-items-center justify-content-between mb-4">
+      <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
         <h1 className="m-0 fw-bold text-light display-5" style={{ letterSpacing: ".5px" }}>
           🏀 Tablero LED de Básquet
         </h1>
-        <div className="d-flex gap-2">
+        <div className="d-flex gap-2 flex-wrap">
           <Button
             variant={showStats ? "secondary" : "outline-secondary"}
             onClick={() => setShowStats((v) => !v)}
@@ -479,6 +481,13 @@ export default function ScoreboardApp() {
             onClick={() => setShowConfig((v) => !v)}
           >
             {showConfig ? "Ocultar Configuración" : "Configuración"}
+          </Button>
+          {/* 👇 NUEVO BOTÓN DE REPORTES */}
+          <Button
+            variant={showReports ? "info" : "outline-info"}
+            onClick={() => setShowReports((v) => !v)}
+          >
+            {showReports ? "Ocultar Reportes" : "📊 Reportes PDF"}
           </Button>
         </div>
       </div>
@@ -619,6 +628,19 @@ export default function ScoreboardApp() {
           </Card>
         </Col>
       </Row>
+
+      {/* ====== PANEL DE REPORTES ====== */}
+      <Collapse in={showReports}>
+        <div id="reports-panel" className="sb-panel mb-4">
+          <Row>
+            <Col md={12} className="mx-auto">
+              <Card className="p-4 shadow sb-card">
+                <ReportsPanel />
+              </Card>
+            </Col>
+          </Row>
+        </div>
+      </Collapse>
 
       {/* ====== Estadísticas ====== */}
       <Collapse in={showStats}>
@@ -1130,8 +1152,11 @@ export default function ScoreboardApp() {
         .btn-outline-primary:hover{ background:rgba(34,211,238,.08); }
         .btn-warning{ background:var(--led-amber); border-color:var(--led-amber); color:#111; }
         .btn-secondary{ background:#1e1e22; border-color:#2a2a2e; }
+        .btn-info{ background:#17a2b8; border-color:#17a2b8; color:#fff; }
+        .btn-outline-info{ color:#17a2b8; border-color:#17a2b8; }
+        .btn-outline-info:hover{ background:rgba(23,162,184,.1); }
 
-        /* === Paneles desplegados: modo gris claro (Estadísticas/Configuración) === */
+        /* === Paneles desplegados: modo gris claro (Estadísticas/Configuración/Reportes) === */
         .sb-panel .sb-card{
           background: #f2f2f5 !important;
           border-color: #e6e6ea !important;
@@ -1176,6 +1201,18 @@ export default function ScoreboardApp() {
 
         .sb-panel .badge.bg-secondary{
           background:#e9e9ee !important; color:#333 !important; border:1px solid #d7d7de !important;
+        }
+
+        .sb-panel .card{
+          background:#ffffff !important;
+          border:1px solid #dee2e6 !important;
+          color:#212529 !important;
+        }
+
+        .sb-panel .alert{
+          background:#d1ecf1 !important;
+          border-color:#bee5eb !important;
+          color:#0c5460 !important;
         }
       `}</style>
     </Container>

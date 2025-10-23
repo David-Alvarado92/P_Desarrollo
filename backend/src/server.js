@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth.js";
 import teamsRoutes from "./routes/teams.js";
 import playersRoutes from "./routes/players.js";
 import matchesRoutes from "./routes/matches.js";
+import reportsRoutes from "./routes/reports.js";
 import { requireAuth } from "./middleware/auth.js";
 
 const app = express();
@@ -22,10 +23,11 @@ app.use(morgan("dev"));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-app.use("/api/auth", authRoutes);            // público
-app.use("/api", requireAuth, teamsRoutes);   // protegido
-app.use("/api", requireAuth, playersRoutes); // protegido
-app.use("/api", requireAuth, matchesRoutes); // protegido
+app.use("/api/auth", authRoutes);     // público (login/register)
+app.use("/api", teamsRoutes);         // 👈 SIN requireAuth
+app.use("/api", playersRoutes);       // 👈 SIN requireAuth
+app.use("/api", matchesRoutes);       // 👈 SIN requireAuth
+app.use("/api", reportsRoutes);       // 👈 SIN requireAuth
 
 const port = process.env.PORT || 3010;
 app.listen(port, () => console.log(`[api] http://localhost:${port}`));
