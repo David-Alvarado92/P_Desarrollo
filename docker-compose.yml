@@ -1,0 +1,83 @@
+services:
+  # SQL Server 2022
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: basketball-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong@Passw0rd
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - basketball-network
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong@Passw0rd' -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: basketball-backend
+    environment:
+      - PORT=3001
+      - DB_USER=sa
+      - DB_PASSWORD=YourStrong@Passw0rd
+      - DB_SERVER=sqlserver
+      - DB_NAME=BasketballDB
+    ports:
+      - "3001:3001"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - basketball-network
+    restart: unless-stopped
+
+  # Script de inicialización de base de datos
+  db-init:
+    image: mcr.microsoft.com/mssql-tools
+    container_name: basketball-db-init
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    volumes:
+      - ./database/init.sql:/init.sql
+    networks:
+      - basketball-network
+    command: >
+      /bin/bash -c "
+      sleep 10 &&
+      /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P 'YourStrong@Passw0rd' -i /init.sql &&
+      echo 'Database initialized successfully'
+      "
+    restart: on-failure
+
+  # Frontend (React + Vite)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: basketball-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - basketball-network
+    restart: unless-stopped
+
+networks:
+  basketball-network:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
+    driver: local

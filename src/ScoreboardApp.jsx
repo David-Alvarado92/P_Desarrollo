@@ -14,6 +14,7 @@ import {
   Modal,
   ListGroup,
 } from "react-bootstrap";
+import * as api from "./services/api";
 
 // =============================
 // TABLERO – LED retro + Gestión de Jugadores
@@ -89,14 +90,13 @@ export default function ScoreboardApp() {
   const [stats, setStats] = useState(defaultStats);
 
   // ==== Equipos & Jugadores ====
-  const [teams, setTeams] = useState(() => {
-    const saved = localStorage.getItem("sb_teams");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [teams, setTeams] = useState([]);
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamLogo, setNewTeamLogo] = useState(null);
   const [selectedA, setSelectedA] = useState(null);
   const [selectedB, setSelectedB] = useState(null);
+  const [saveGameModal, setSaveGameModal] = useState(false);
+  const [gameStatus, setGameStatus] = useState(''); // 'completed', 'cancelled', 'suspended'
 
   // Gestionar jugadores
   const [manageTeamId, setManageTeamId] = useState(null); // id del equipo a gestionar
@@ -118,6 +118,24 @@ export default function ScoreboardApp() {
   const [autoAdvancePeriod, setAutoAdvancePeriod] = useState(true);
   const audioRef = useRef(null);
 
+  // Cargar equipos al iniciar
+  useEffect(() => {
+    loadTeams();
+  }, []);
+
+  async function loadTeams() {
+    try {
+      const teamsData = await api.getAllTeams();
+      setTeams(teamsData);
+    } catch (error) {
+      console.error('Error al cargar equipos:', error);
+      // Fallback a localStorage
+      const saved = localStorage.getItem("sb_teams");
+      if (saved) setTeams(JSON.parse(saved));
+    }
+  }
+
+  // Guardar en localStorage como backup
   useEffect(() => {
     localStorage.setItem("sb_teams", JSON.stringify(teams));
   }, [teams]);
@@ -408,49 +426,77 @@ export default function ScoreboardApp() {
     setNewTeamLogo(await readFileAsDataURL(file));
   };
 
-  const addTeam = () => {
+  const addTeam = async () => {
     const name = (newTeamName || "").trim();
     if (!name) return;
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setTeams((arr) => [{ id, name, logo: newTeamLogo || null, players: [] }, ...arr]);
-    setNewTeamName("");
-    setNewTeamLogo(null);
+    const newTeam = { id, name, logo: newTeamLogo || null };
+
+    try {
+      await api.createTeam(newTeam);
+      setTeams((arr) => [{ ...newTeam, players: [] }, ...arr]);
+      setNewTeamName("");
+      setNewTeamLogo(null);
+    } catch (error) {
+      console.error('Error al agregar equipo:', error);
+      alert('Error al agregar el equipo. Intente nuevamente.');
+    }
   };
 
-  const deleteTeam = (id) => setTeams((arr) => arr.filter((t) => t.id !== id));
+  const deleteTeam = async (id) => {
+    try {
+      await api.deleteTeam(id);
+      setTeams((arr) => arr.filter((t) => t.id !== id));
+    } catch (error) {
+      console.error('Error al eliminar equipo:', error);
+      alert('Error al eliminar el equipo. Intente nuevamente.');
+    }
+  };
 
   // Players CRUD
-  const addPlayerToTeam = (teamId) => {
+  const addPlayerToTeam = async (teamId) => {
     const n = playerName.trim();
     const num = String(playerNumber).trim();
     if (!n || !num) return;
-    setTeams((arr) =>
-      arr.map((t) =>
-        t.id !== teamId
-          ? t
-          : {
-              ...t,
-              players: [
-                {
-                  id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                  name: n,
-                  number: num,
-                },
-                ...(t.players || []),
-              ],
-            }
-      )
-    );
-    setPlayerName("");
-    setPlayerNumber("");
+
+    const newPlayer = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: n,
+      number: num,
+    };
+
+    try {
+      await api.addPlayer(teamId, newPlayer);
+      setTeams((arr) =>
+        arr.map((t) =>
+          t.id !== teamId
+            ? t
+            : {
+                ...t,
+                players: [newPlayer, ...(t.players || [])],
+              }
+        )
+      );
+      setPlayerName("");
+      setPlayerNumber("");
+    } catch (error) {
+      console.error('Error al agregar jugador:', error);
+      alert('Error al agregar el jugador. Intente nuevamente.');
+    }
   };
 
-  const deletePlayer = (teamId, pid) => {
-    setTeams((arr) =>
-      arr.map((t) =>
-        t.id !== teamId ? t : { ...t, players: (t.players || []).filter((p) => p.id !== pid) }
-      )
-    );
+  const deletePlayer = async (teamId, pid) => {
+    try {
+      await api.deletePlayer(pid);
+      setTeams((arr) =>
+        arr.map((t) =>
+          t.id !== teamId ? t : { ...t, players: (t.players || []).filter((p) => p.id !== pid) }
+        )
+      );
+    } catch (error) {
+      console.error('Error al eliminar jugador:', error);
+      alert('Error al eliminar el jugador. Intente nuevamente.');
+    }
   };
 
   const applySelectedTeams = () => {
@@ -479,6 +525,40 @@ export default function ScoreboardApp() {
       gameStartedAt: null,
     }));
     setStats(defaultStats);
+  };
+
+  // Función para guardar el partido
+  const handleSaveGame = async () => {
+    if (!gameStatus) return;
+
+    const gameData = {
+      teamA: {
+        id: state.teamA.id,
+        name: state.teamA.name
+      },
+      teamB: {
+        id: state.teamB.id,
+        name: state.teamB.name
+      },
+      finalScoreA: state.teamA.score,
+      finalScoreB: state.teamB.score,
+      period: state.period,
+      status: gameStatus,
+      stats: stats,
+      history: stats.history,
+      sanctions: stats.sanctions,
+      settings: settings
+    };
+
+    try {
+      const result = await api.saveGame(gameData);
+      alert(`Partido guardado exitosamente con ID: ${result.gameId}`);
+      setSaveGameModal(false);
+      setGameStatus('');
+    } catch (error) {
+      console.error('Error al guardar partido:', error);
+      alert('Error al guardar el partido. Intente nuevamente.');
+    }
   };
 
   // ===== UI =====
@@ -1077,6 +1157,39 @@ export default function ScoreboardApp() {
                     Reiniciar Todo
                   </Button>
                 </div>
+
+                <hr className="my-4" />
+
+                <h5 className="text-secondary mb-3">Guardar Partido</h5>
+                <div className="d-flex gap-2 flex-wrap">
+                  <Button
+                    variant="success"
+                    onClick={() => {
+                      setGameStatus('completed');
+                      setSaveGameModal(true);
+                    }}
+                  >
+                    Finalizar y Guardar Partido
+                  </Button>
+                  <Button
+                    variant="warning"
+                    onClick={() => {
+                      setGameStatus('suspended');
+                      setSaveGameModal(true);
+                    }}
+                  >
+                    Suspender Partido
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setGameStatus('cancelled');
+                      setSaveGameModal(true);
+                    }}
+                  >
+                    Cancelar Partido
+                  </Button>
+                </div>
               </Card>
             </Col>
           </Row>
@@ -1179,6 +1292,41 @@ export default function ScoreboardApp() {
           </Button>
           <Button variant="primary" disabled={!selectedPlayerId} onClick={confirmPlayerAction}>
             Confirmar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Modal para confirmar guardado de partido */}
+      <Modal show={saveGameModal} onHide={() => setSaveGameModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Guardar Partido</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="mb-3">
+            <strong>Equipo Local:</strong> {state.teamA.name} - {state.teamA.score} puntos
+          </div>
+          <div className="mb-3">
+            <strong>Equipo Visitante:</strong> {state.teamB.name} - {state.teamB.score} puntos
+          </div>
+          <div className="mb-3">
+            <strong>Periodo:</strong> {state.period} de {settings.periodsTotal}
+          </div>
+          <div className="mb-3">
+            <strong>Estado:</strong>{' '}
+            {gameStatus === 'completed' && 'Finalizado'}
+            {gameStatus === 'suspended' && 'Suspendido'}
+            {gameStatus === 'cancelled' && 'Cancelado'}
+          </div>
+          <p className="text-muted">
+            ¿Está seguro que desea guardar este partido en la base de datos?
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setSaveGameModal(false)}>
+            Cancelar
+          </Button>
+          <Button variant="primary" onClick={handleSaveGame}>
+            Confirmar y Guardar
           </Button>
         </Modal.Footer>
       </Modal>
