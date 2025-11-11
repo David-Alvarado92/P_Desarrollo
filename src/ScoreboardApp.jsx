@@ -14,6 +14,7 @@ import {
   Modal,
   ListGroup,
 } from "react-bootstrap";
+import * as api from "./services/api";
 
 // =============================
 // TABLERO – LED retro + Gestión de Jugadores
@@ -89,14 +90,13 @@ export default function ScoreboardApp() {
   const [stats, setStats] = useState(defaultStats);
 
   // ==== Equipos & Jugadores ====
-  const [teams, setTeams] = useState(() => {
-    const saved = localStorage.getItem("sb_teams");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [teams, setTeams] = useState([]);
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamLogo, setNewTeamLogo] = useState(null);
   const [selectedA, setSelectedA] = useState(null);
   const [selectedB, setSelectedB] = useState(null);
+  const [saveGameModal, setSaveGameModal] = useState(false);
+  const [gameStatus, setGameStatus] = useState(''); // 'completed', 'cancelled', 'suspended'
 
   // Gestionar jugadores
   const [manageTeamId, setManageTeamId] = useState(null); // id del equipo a gestionar
@@ -114,7 +114,28 @@ export default function ScoreboardApp() {
   const [draftMinutes, setDraftMinutes] = useState(
     String(Math.round(settings.periodLengthSec / 60))
   );
+  const [showPeriodEnd, setShowPeriodEnd] = useState(false);
+  const [autoAdvancePeriod, setAutoAdvancePeriod] = useState(true);
+  const audioRef = useRef(null);
 
+  // Cargar equipos al iniciar
+  useEffect(() => {
+    loadTeams();
+  }, []);
+
+  async function loadTeams() {
+    try {
+      const teamsData = await api.getAllTeams();
+      setTeams(teamsData);
+    } catch (error) {
+      console.error('Error al cargar equipos:', error);
+      // Fallback a localStorage
+      const saved = localStorage.getItem("sb_teams");
+      if (saved) setTeams(JSON.parse(saved));
+    }
+  }
+
+  // Guardar en localStorage como backup
   useEffect(() => {
     localStorage.setItem("sb_teams", JSON.stringify(teams));
   }, [teams]);
@@ -141,7 +162,25 @@ export default function ScoreboardApp() {
         const t = now();
         if (clockRunning && gameStartedAt) {
           const elapsed = t - gameStartedAt;
-          gameMsLeft = Math.max(0, prev.gameMsLeft - elapsed);
+          const newMsLeft = Math.max(0, prev.gameMsLeft - elapsed);
+
+          // Detectar fin de periodo
+          if (prev.gameMsLeft > 0 && newMsLeft === 0) {
+            clockRunning = false;
+            // Reproducir sonido y mostrar notificación
+            if (audioRef.current) audioRef.current.play().catch(() => {});
+            setShowPeriodEnd(true);
+
+            // Avanzar automáticamente si está habilitado y no es el último periodo
+            if (autoAdvancePeriod && prev.period < settings.periodsTotal) {
+              setTimeout(() => {
+                setShowPeriodEnd(false);
+                nextPeriod();
+              }, 3000);
+            }
+          }
+
+          gameMsLeft = newMsLeft;
           if (gameMsLeft === 0) clockRunning = false;
         }
         return {
@@ -155,7 +194,7 @@ export default function ScoreboardApp() {
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+  }, [autoAdvancePeriod, settings.periodsTotal]);
 
   // reloj
   const toggleClock = () => {
@@ -387,49 +426,77 @@ export default function ScoreboardApp() {
     setNewTeamLogo(await readFileAsDataURL(file));
   };
 
-  const addTeam = () => {
+  const addTeam = async () => {
     const name = (newTeamName || "").trim();
     if (!name) return;
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    setTeams((arr) => [{ id, name, logo: newTeamLogo || null, players: [] }, ...arr]);
-    setNewTeamName("");
-    setNewTeamLogo(null);
+    const newTeam = { id, name, logo: newTeamLogo || null };
+
+    try {
+      await api.createTeam(newTeam);
+      setTeams((arr) => [{ ...newTeam, players: [] }, ...arr]);
+      setNewTeamName("");
+      setNewTeamLogo(null);
+    } catch (error) {
+      console.error('Error al agregar equipo:', error);
+      alert('Error al agregar el equipo. Intente nuevamente.');
+    }
   };
 
-  const deleteTeam = (id) => setTeams((arr) => arr.filter((t) => t.id !== id));
+  const deleteTeam = async (id) => {
+    try {
+      await api.deleteTeam(id);
+      setTeams((arr) => arr.filter((t) => t.id !== id));
+    } catch (error) {
+      console.error('Error al eliminar equipo:', error);
+      alert('Error al eliminar el equipo. Intente nuevamente.');
+    }
+  };
 
   // Players CRUD
-  const addPlayerToTeam = (teamId) => {
+  const addPlayerToTeam = async (teamId) => {
     const n = playerName.trim();
     const num = String(playerNumber).trim();
     if (!n || !num) return;
-    setTeams((arr) =>
-      arr.map((t) =>
-        t.id !== teamId
-          ? t
-          : {
-              ...t,
-              players: [
-                {
-                  id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                  name: n,
-                  number: num,
-                },
-                ...(t.players || []),
-              ],
-            }
-      )
-    );
-    setPlayerName("");
-    setPlayerNumber("");
+
+    const newPlayer = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: n,
+      number: num,
+    };
+
+    try {
+      await api.addPlayer(teamId, newPlayer);
+      setTeams((arr) =>
+        arr.map((t) =>
+          t.id !== teamId
+            ? t
+            : {
+                ...t,
+                players: [newPlayer, ...(t.players || [])],
+              }
+        )
+      );
+      setPlayerName("");
+      setPlayerNumber("");
+    } catch (error) {
+      console.error('Error al agregar jugador:', error);
+      alert('Error al agregar el jugador. Intente nuevamente.');
+    }
   };
 
-  const deletePlayer = (teamId, pid) => {
-    setTeams((arr) =>
-      arr.map((t) =>
-        t.id !== teamId ? t : { ...t, players: (t.players || []).filter((p) => p.id !== pid) }
-      )
-    );
+  const deletePlayer = async (teamId, pid) => {
+    try {
+      await api.deletePlayer(pid);
+      setTeams((arr) =>
+        arr.map((t) =>
+          t.id !== teamId ? t : { ...t, players: (t.players || []).filter((p) => p.id !== pid) }
+        )
+      );
+    } catch (error) {
+      console.error('Error al eliminar jugador:', error);
+      alert('Error al eliminar el jugador. Intente nuevamente.');
+    }
   };
 
   const applySelectedTeams = () => {
@@ -460,10 +527,88 @@ export default function ScoreboardApp() {
     setStats(defaultStats);
   };
 
+  // Función para guardar el partido
+  const handleSaveGame = async () => {
+    if (!gameStatus) return;
+
+    const gameData = {
+      teamA: {
+        id: state.teamA.id,
+        name: state.teamA.name
+      },
+      teamB: {
+        id: state.teamB.id,
+        name: state.teamB.name
+      },
+      finalScoreA: state.teamA.score,
+      finalScoreB: state.teamB.score,
+      period: state.period,
+      status: gameStatus,
+      stats: stats,
+      history: stats.history,
+      sanctions: stats.sanctions,
+      settings: settings
+    };
+
+    try {
+      const result = await api.saveGame(gameData);
+      alert(`Partido guardado exitosamente con ID: ${result.gameId}`);
+      setSaveGameModal(false);
+      setGameStatus('');
+    } catch (error) {
+      console.error('Error al guardar partido:', error);
+      alert('Error al guardar el partido. Intente nuevamente.');
+    }
+  };
+
   // ===== UI =====
   return (
     <Container className="py-5 sb">
-      <div className="d-flex align-items-center justify-content-between mb-4">
+      {/* Audio para notificación de fin de periodo */}
+      <audio ref={audioRef} src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
+
+      {/* Notificación de fin de periodo */}
+      {showPeriodEnd && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            animation: "fadeIn 0.3s ease-in"
+          }}
+        >
+          <div
+            className="period-end-notification"
+            style={{
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              padding: "2rem 2.5rem",
+              borderRadius: "20px",
+              textAlign: "center",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+              animation: "scaleIn 0.4s ease-out",
+              maxWidth: "90%"
+            }}
+          >
+            <h1 className="period-end-title" style={{ fontSize: "clamp(2rem, 5vw, 4rem)", margin: 0, color: "white", fontWeight: "bold" }}>
+              🏁 FIN DEL PERIODO {state.period}
+            </h1>
+            {autoAdvancePeriod && state.period < settings.periodsTotal && (
+              <p style={{ fontSize: "clamp(1rem, 3vw, 1.5rem)", margin: "1rem 0 0", color: "#f0f0f0" }}>
+                Avanzando automáticamente...
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
         <h1 className="m-0 fw-bold text-light display-5" style={{ letterSpacing: ".5px" }}>
           🏀 Tablero LED de Básquet
         </h1>
@@ -511,7 +656,7 @@ export default function ScoreboardApp() {
             <div className="mb-3">
               <AnimatedNumber value={state.teamA.score} className="score-red" />
             </div>
-            <div className="d-flex justify-content-center gap-2 mb-2">
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
               <Button variant="outline-success" onClick={() => openScoreModal("teamA", 1)}>
                 +1
               </Button>
@@ -520,6 +665,17 @@ export default function ScoreboardApp() {
               </Button>
               <Button variant="outline-warning" onClick={() => openScoreModal("teamA", 3)}>
                 +3
+              </Button>
+            </div>
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamA", -1)}>
+                -1
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamA", -2)}>
+                -2
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamA", -3)}>
+                -3
               </Button>
             </div>
             <div className="d-flex justify-content-center gap-2">
@@ -591,7 +747,7 @@ export default function ScoreboardApp() {
             <div className="mb-3">
               <AnimatedNumber value={state.teamB.score} className="score-red" />
             </div>
-            <div className="d-flex justify-content-center gap-2 mb-2">
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
               <Button variant="outline-success" onClick={() => openScoreModal("teamB", 1)}>
                 +1
               </Button>
@@ -600,6 +756,17 @@ export default function ScoreboardApp() {
               </Button>
               <Button variant="outline-warning" onClick={() => openScoreModal("teamB", 3)}>
                 +3
+              </Button>
+            </div>
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamB", -1)}>
+                -1
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamB", -2)}>
+                -2
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamB", -3)}>
+                -3
               </Button>
             </div>
             <div className="d-flex justify-content-center gap-2">
@@ -801,12 +968,21 @@ export default function ScoreboardApp() {
                   <Form.Check
                     type="switch"
                     id="anti-dup"
-                    className="text-secondary mb-4"
+                    className="text-secondary mb-2"
                     label="Ignorar dobles clics fantasma (anti-duplicado)"
                     checked={settings.antiDuplicate}
                     onChange={(e) =>
                       setSettings((s) => ({ ...s, antiDuplicate: e.target.checked }))
                     }
+                  />
+
+                  <Form.Check
+                    type="switch"
+                    id="auto-advance"
+                    className="text-secondary mb-4"
+                    label="Avanzar automáticamente al siguiente periodo cuando termine el tiempo"
+                    checked={autoAdvancePeriod}
+                    onChange={(e) => setAutoAdvancePeriod(e.target.checked)}
                   />
 
                   <h5 className="text-secondary">Gestión de equipos</h5>
@@ -981,6 +1157,39 @@ export default function ScoreboardApp() {
                     Reiniciar Todo
                   </Button>
                 </div>
+
+                <hr className="my-4" />
+
+                <h5 className="text-secondary mb-3">Guardar Partido</h5>
+                <div className="d-flex gap-2 flex-wrap">
+                  <Button
+                    variant="success"
+                    onClick={() => {
+                      setGameStatus('completed');
+                      setSaveGameModal(true);
+                    }}
+                  >
+                    Finalizar y Guardar Partido
+                  </Button>
+                  <Button
+                    variant="warning"
+                    onClick={() => {
+                      setGameStatus('suspended');
+                      setSaveGameModal(true);
+                    }}
+                  >
+                    Suspender Partido
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setGameStatus('cancelled');
+                      setSaveGameModal(true);
+                    }}
+                  >
+                    Cancelar Partido
+                  </Button>
+                </div>
               </Card>
             </Col>
           </Row>
@@ -1087,6 +1296,41 @@ export default function ScoreboardApp() {
         </Modal.Footer>
       </Modal>
 
+      {/* Modal para confirmar guardado de partido */}
+      <Modal show={saveGameModal} onHide={() => setSaveGameModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Guardar Partido</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div className="mb-3">
+            <strong>Equipo Local:</strong> {state.teamA.name} - {state.teamA.score} puntos
+          </div>
+          <div className="mb-3">
+            <strong>Equipo Visitante:</strong> {state.teamB.name} - {state.teamB.score} puntos
+          </div>
+          <div className="mb-3">
+            <strong>Periodo:</strong> {state.period} de {settings.periodsTotal}
+          </div>
+          <div className="mb-3">
+            <strong>Estado:</strong>{' '}
+            {gameStatus === 'completed' && 'Finalizado'}
+            {gameStatus === 'suspended' && 'Suspendido'}
+            {gameStatus === 'cancelled' && 'Cancelado'}
+          </div>
+          <p className="text-muted">
+            ¿Está seguro que desea guardar este partido en la base de datos?
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setSaveGameModal(false)}>
+            Cancelar
+          </Button>
+          <Button variant="primary" onClick={handleSaveGame}>
+            Confirmar y Guardar
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
       <style>{`
         :root{
           --sb-bg:#0b0b0d; --sb-frame:#f2f2f2;
@@ -1176,6 +1420,34 @@ export default function ScoreboardApp() {
 
         .sb-panel .badge.bg-secondary{
           background:#e9e9ee !important; color:#333 !important; border:1px solid #d7d7de !important;
+        }
+
+        /* Animaciones */
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleIn {
+          from { transform: scale(0.8); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+
+        /* Responsive mobile improvements */
+        @media (max-width: 768px) {
+          .display-5 { font-size: 1.8rem !important; }
+          .score-led { font-size: 56px !important; }
+          .clock-led { font-size: 48px !important; }
+          .sb-card { padding: 1.5rem !important; }
+          .btn { font-size: 0.875rem; padding: 0.5rem 0.75rem; }
+          .btn-lg { font-size: 1rem; padding: 0.625rem 1rem; }
+          h1.display-5 { margin-bottom: 1rem !important; }
+        }
+
+        @media (max-width: 576px) {
+          .score-led { font-size: 42px !important; }
+          .clock-led { font-size: 38px !important; }
+          .label-led { font-size: 1.1rem !important; }
+          .btn-sm { font-size: 0.75rem; padding: 0.35rem 0.5rem; }
         }
       `}</style>
     </Container>
