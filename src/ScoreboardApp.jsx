@@ -114,6 +114,9 @@ export default function ScoreboardApp() {
   const [draftMinutes, setDraftMinutes] = useState(
     String(Math.round(settings.periodLengthSec / 60))
   );
+  const [showPeriodEnd, setShowPeriodEnd] = useState(false);
+  const [autoAdvancePeriod, setAutoAdvancePeriod] = useState(true);
+  const audioRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem("sb_teams", JSON.stringify(teams));
@@ -141,7 +144,25 @@ export default function ScoreboardApp() {
         const t = now();
         if (clockRunning && gameStartedAt) {
           const elapsed = t - gameStartedAt;
-          gameMsLeft = Math.max(0, prev.gameMsLeft - elapsed);
+          const newMsLeft = Math.max(0, prev.gameMsLeft - elapsed);
+
+          // Detectar fin de periodo
+          if (prev.gameMsLeft > 0 && newMsLeft === 0) {
+            clockRunning = false;
+            // Reproducir sonido y mostrar notificación
+            if (audioRef.current) audioRef.current.play().catch(() => {});
+            setShowPeriodEnd(true);
+
+            // Avanzar automáticamente si está habilitado y no es el último periodo
+            if (autoAdvancePeriod && prev.period < settings.periodsTotal) {
+              setTimeout(() => {
+                setShowPeriodEnd(false);
+                nextPeriod();
+              }, 3000);
+            }
+          }
+
+          gameMsLeft = newMsLeft;
           if (gameMsLeft === 0) clockRunning = false;
         }
         return {
@@ -155,7 +176,7 @@ export default function ScoreboardApp() {
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+  }, [autoAdvancePeriod, settings.periodsTotal]);
 
   // reloj
   const toggleClock = () => {
@@ -463,7 +484,51 @@ export default function ScoreboardApp() {
   // ===== UI =====
   return (
     <Container className="py-5 sb">
-      <div className="d-flex align-items-center justify-content-between mb-4">
+      {/* Audio para notificación de fin de periodo */}
+      <audio ref={audioRef} src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
+
+      {/* Notificación de fin de periodo */}
+      {showPeriodEnd && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            animation: "fadeIn 0.3s ease-in"
+          }}
+        >
+          <div
+            className="period-end-notification"
+            style={{
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              padding: "2rem 2.5rem",
+              borderRadius: "20px",
+              textAlign: "center",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+              animation: "scaleIn 0.4s ease-out",
+              maxWidth: "90%"
+            }}
+          >
+            <h1 className="period-end-title" style={{ fontSize: "clamp(2rem, 5vw, 4rem)", margin: 0, color: "white", fontWeight: "bold" }}>
+              🏁 FIN DEL PERIODO {state.period}
+            </h1>
+            {autoAdvancePeriod && state.period < settings.periodsTotal && (
+              <p style={{ fontSize: "clamp(1rem, 3vw, 1.5rem)", margin: "1rem 0 0", color: "#f0f0f0" }}>
+                Avanzando automáticamente...
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
         <h1 className="m-0 fw-bold text-light display-5" style={{ letterSpacing: ".5px" }}>
           🏀 Tablero LED de Básquet
         </h1>
@@ -511,7 +576,7 @@ export default function ScoreboardApp() {
             <div className="mb-3">
               <AnimatedNumber value={state.teamA.score} className="score-red" />
             </div>
-            <div className="d-flex justify-content-center gap-2 mb-2">
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
               <Button variant="outline-success" onClick={() => openScoreModal("teamA", 1)}>
                 +1
               </Button>
@@ -520,6 +585,17 @@ export default function ScoreboardApp() {
               </Button>
               <Button variant="outline-warning" onClick={() => openScoreModal("teamA", 3)}>
                 +3
+              </Button>
+            </div>
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamA", -1)}>
+                -1
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamA", -2)}>
+                -2
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamA", -3)}>
+                -3
               </Button>
             </div>
             <div className="d-flex justify-content-center gap-2">
@@ -591,7 +667,7 @@ export default function ScoreboardApp() {
             <div className="mb-3">
               <AnimatedNumber value={state.teamB.score} className="score-red" />
             </div>
-            <div className="d-flex justify-content-center gap-2 mb-2">
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
               <Button variant="outline-success" onClick={() => openScoreModal("teamB", 1)}>
                 +1
               </Button>
@@ -600,6 +676,17 @@ export default function ScoreboardApp() {
               </Button>
               <Button variant="outline-warning" onClick={() => openScoreModal("teamB", 3)}>
                 +3
+              </Button>
+            </div>
+            <div className="d-flex justify-content-center gap-2 mb-2 flex-wrap">
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamB", -1)}>
+                -1
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamB", -2)}>
+                -2
+              </Button>
+              <Button variant="outline-danger" size="sm" onClick={() => openScoreModal("teamB", -3)}>
+                -3
               </Button>
             </div>
             <div className="d-flex justify-content-center gap-2">
@@ -801,12 +888,21 @@ export default function ScoreboardApp() {
                   <Form.Check
                     type="switch"
                     id="anti-dup"
-                    className="text-secondary mb-4"
+                    className="text-secondary mb-2"
                     label="Ignorar dobles clics fantasma (anti-duplicado)"
                     checked={settings.antiDuplicate}
                     onChange={(e) =>
                       setSettings((s) => ({ ...s, antiDuplicate: e.target.checked }))
                     }
+                  />
+
+                  <Form.Check
+                    type="switch"
+                    id="auto-advance"
+                    className="text-secondary mb-4"
+                    label="Avanzar automáticamente al siguiente periodo cuando termine el tiempo"
+                    checked={autoAdvancePeriod}
+                    onChange={(e) => setAutoAdvancePeriod(e.target.checked)}
                   />
 
                   <h5 className="text-secondary">Gestión de equipos</h5>
@@ -1176,6 +1272,34 @@ export default function ScoreboardApp() {
 
         .sb-panel .badge.bg-secondary{
           background:#e9e9ee !important; color:#333 !important; border:1px solid #d7d7de !important;
+        }
+
+        /* Animaciones */
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes scaleIn {
+          from { transform: scale(0.8); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+
+        /* Responsive mobile improvements */
+        @media (max-width: 768px) {
+          .display-5 { font-size: 1.8rem !important; }
+          .score-led { font-size: 56px !important; }
+          .clock-led { font-size: 48px !important; }
+          .sb-card { padding: 1.5rem !important; }
+          .btn { font-size: 0.875rem; padding: 0.5rem 0.75rem; }
+          .btn-lg { font-size: 1rem; padding: 0.625rem 1rem; }
+          h1.display-5 { margin-bottom: 1rem !important; }
+        }
+
+        @media (max-width: 576px) {
+          .score-led { font-size: 42px !important; }
+          .clock-led { font-size: 38px !important; }
+          .label-led { font-size: 1.1rem !important; }
+          .btn-sm { font-size: 0.75rem; padding: 0.35rem 0.5rem; }
         }
       `}</style>
     </Container>
