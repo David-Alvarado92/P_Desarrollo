@@ -1,5 +1,5 @@
 // Configuración de la URL de la API
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = '/api';
 
 // Helper para obtener el token
 function getToken() {
